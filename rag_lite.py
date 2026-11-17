@@ -12,6 +12,7 @@ import json
 import math
 import os
 import re
+import urllib.error
 import urllib.request
 from collections import Counter
 from pathlib import Path
@@ -160,17 +161,24 @@ def ask_groq(question, results):
             {"role": "user", "content": f"Context passages:\n\n{ctx}\n\nQuestion: {question}"},
         ],
     }
+    key = os.environ["GROQ_API_KEY"].strip().strip('"').strip("'")
     req = urllib.request.Request(
         "https://api.groq.com/openai/v1/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         headers={
-            "Authorization": "Bearer " + os.environ["GROQ_API_KEY"],
+            "Authorization": "Bearer " + key,
             "content-type": "application/json",
             "User-Agent": "toyota-rag/1.0",
         },
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read())["choices"][0]["message"]["content"]
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read())["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "ignore")[:200]
+        raise RuntimeError(
+            f"Groq said HTTP {e.code}: {detail} | key length={len(key)}, starts with '{key[:4]}'"
+        ) from None
 
 
 def llm_available():
