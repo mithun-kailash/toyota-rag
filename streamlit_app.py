@@ -11,12 +11,13 @@ st.caption("Answers come only from the Toyota Cars Complete Knowledge Base PDF."
 
 # API key: Streamlit secrets (when deployed) or .env / environment variable (on your laptop)
 try:
-    if "ANTHROPIC_API_KEY" in st.secrets:
-        os.environ["ANTHROPIC_API_KEY"] = st.secrets["ANTHROPIC_API_KEY"]
+    for name in ("GROQ_API_KEY", "ANTHROPIC_API_KEY"):
+        if name in st.secrets:
+            os.environ[name] = st.secrets[name]
 except Exception:
     pass
 r.load_env()
-use_llm = bool(os.getenv("ANTHROPIC_API_KEY"))
+use_llm = r.llm_available()
 
 
 @st.cache_resource
@@ -28,7 +29,7 @@ engine = load_engine()
 
 with st.sidebar:
     k = st.slider("Passages to retrieve", 2, 8, 5)
-    st.write("Mode: " + ("Claude writes answers" if use_llm else "showing matching passages only"))
+    st.write("Mode: " + ("AI writes answers" if use_llm else "showing matching passages only"))
     st.markdown("**Try asking**")
     for q in [
         "What is the difference between Innova Crysta and Innova Hycross?",
@@ -57,9 +58,9 @@ if question:
             answer = "I could not find that in the knowledge base."
         elif use_llm:
             try:
-                answer = r.ask_claude(question, results)
+                answer = r.ask_llm(question, results)
             except Exception as e:
-                answer = f"Could not reach Claude ({e}). The matching passages are below."
+                answer = f"Could not get an AI answer ({e}). The matching passages are below."
         else:
             answer = "Here are the best matching passages from the knowledge base:"
         st.markdown(answer)

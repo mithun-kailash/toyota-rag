@@ -145,12 +145,51 @@ def ask_claude(question, results):
         return json.loads(resp.read())["content"][0]["text"]
 
 
+def ask_groq(question, results):
+    """Free alternative: Groq's OpenAI-compatible API (get a free key at console.groq.com)."""
+    ctx = "\n\n".join(
+        f"[{n}] (Section: {r['section']} | page {', '.join(map(str, r['pages']))})\n{r['text']}"
+        for n, r in enumerate(results, start=1)
+    )
+    body = {
+        "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "max_tokens": 800,
+        "temperature": 0.2,
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": f"Context passages:\n\n{ctx}\n\nQuestion: {question}"},
+        ],
+    }
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": "Bearer " + os.environ["GROQ_API_KEY"],
+            "content-type": "application/json",
+            "User-Agent": "toyota-rag/1.0",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read())["choices"][0]["message"]["content"]
+
+
+def llm_available():
+    return bool(os.getenv("GROQ_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
+
+
+def ask_llm(question, results):
+    """Use Groq if its key is set, otherwise Claude."""
+    if os.getenv("GROQ_API_KEY"):
+        return ask_groq(question, results)
+    return ask_claude(question, results)
+
+
 def main():
     load_env()
     chunks = build_chunks()
     bm25 = BM25(chunks)
-    use_llm = bool(os.getenv("ANTHROPIC_API_KEY"))
-    print(f"Loaded {len(chunks)} chunks. Mode: {'Claude answers' if use_llm else 'passages only (no API key)'}")
+    use_llm = llm_available()
+    print(f"Loaded {len(chunks)} chunks. Mode: {'AI writes answers' if use_llm else 'passages only (no API key)'}")
     print("Ask a question about Toyota. Press Enter on an empty line to quit.\n")
     while True:
         q = input("You: ").strip()
@@ -162,9 +201,9 @@ def main():
             continue
         if use_llm:
             try:
-                print(f"\n{ask_claude(q, results)}\n")
+                print(f"\n{ask_llm(q, results)}\n")
             except Exception as e:  # network/key problems should not crash the chat
-                print(f"\n(Could not reach Claude: {e}. Showing passages instead.)\n")
+                print(f"\n(Could not get an AI answer: {e}. Showing passages instead.)\n")
         print("Sources:")
         for n, r in enumerate(results, start=1):
             print(f"\n[{n}] {r['section']} (page {', '.join(map(str, r['pages']))})")
