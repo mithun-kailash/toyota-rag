@@ -154,7 +154,7 @@ def ask_groq(question, results):
     )
     body = {
         "model": os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        "max_tokens": 800,
+        "max_tokens": 1500,
         "temperature": 0.2,
         "messages": [
             {"role": "system", "content": SYSTEM},
@@ -181,6 +181,35 @@ def ask_groq(question, results):
         ) from None
 
 
+def ask_groq_auto(question, results):
+    """Try the configured model; if Groq says 'model not found', ask Groq which models this key can use."""
+    try:
+        return ask_groq(question, results)
+    except RuntimeError as e:
+        if "model_not_found" not in str(e):
+            raise
+    key = os.environ["GROQ_API_KEY"].strip().strip('"').strip("'")
+    req = urllib.request.Request(
+        "https://api.groq.com/openai/v1/models",
+        headers={"Authorization": "Bearer " + key, "User-Agent": "toyota-rag/1.0"},
+    )
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        available = [m["id"] for m in json.loads(resp.read())["data"]]
+    skip = ("whisper", "tts", "guard", "embed", "orpheus", "playai", "safeguard", "compound")
+    tried = os.getenv("GROQ_MODEL")
+    prefs = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant", "openai/gpt-oss-20b"]
+    candidates = [m for m in available if m != tried and not any(s in m.lower() for s in skip)]
+    candidates.sort(key=lambda m: prefs.index(m) if m in prefs else 99)
+    for m in candidates[:4]:
+        os.environ["GROQ_MODEL"] = m
+        try:
+            return ask_groq(question, results)
+        except RuntimeError as e2:
+            if "model_not_found" not in str(e2):
+                raise
+    raise RuntimeError(f"No usable chat model found. Models this key can see: {available}")
+
+
 def llm_available():
     return bool(os.getenv("GROQ_API_KEY") or os.getenv("ANTHROPIC_API_KEY"))
 
@@ -188,7 +217,7 @@ def llm_available():
 def ask_llm(question, results):
     """Use Groq if its key is set, otherwise Claude."""
     if os.getenv("GROQ_API_KEY"):
-        return ask_groq(question, results)
+        return ask_groq_auto(question, results)
     return ask_claude(question, results)
 
 
